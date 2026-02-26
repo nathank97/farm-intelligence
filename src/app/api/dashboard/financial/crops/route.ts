@@ -1,11 +1,5 @@
 import { NextRequest } from 'next/server';
-import {
-  getFieldPLSummaries,
-  getExpenseBreakdown,
-  getRevenueBreakdown,
-  getYearOverYearFinancials,
-  getFinancialFilterOptions,
-} from '@/services/financialService';
+import { getCropProfitability, getFinancialFilterOptions } from '@/services/financialService';
 import { successResponse, handleApiError } from '@/utils/apiResponse';
 import type { DashboardFilters } from '@/types/api';
 
@@ -16,18 +10,14 @@ export async function GET(request: NextRequest) {
       year: searchParams.get('year') ? Number(searchParams.get('year')) : undefined,
       fieldId: searchParams.get('fieldId') ?? undefined,
       cropCategory: searchParams.get('cropCategory') ?? undefined,
-      crop: searchParams.get('crop') ?? undefined,
     };
 
-    const [summaries, expenses, revenue, yearOverYear, filterOptions] = await Promise.all([
-      getFieldPLSummaries(filters),
-      getExpenseBreakdown(filters),
-      getRevenueBreakdown(filters),
-      getYearOverYearFinancials(filters),
+    const [crops, filterOptions] = await Promise.all([
+      getCropProfitability(filters),
       getFinancialFilterOptions(),
     ]);
 
-    return successResponse({ summaries, expenses, revenue, yearOverYear, filterOptions });
+    return successResponse({ crops, filterOptions });
   } catch (err) {
     return handleApiError(err);
   }

@@ -1,105 +1,38 @@
-'use client';
-
-import { useState, useEffect, useCallback } from 'react';
-import FilterBar from '@/components/dashboard/FilterBar';
-import CropChart from '@/components/dashboard/CropChart';
-import FinancialChart from '@/components/dashboard/FinancialChart';
-import LoadingSpinner from '@/components/ui/LoadingSpinner';
 import Card from '@/components/ui/Card';
-import type { FilterOption, CropPerformanceData, YieldTrendPoint, FinancialSummaryData, CostBreakdown } from '@/types/dashboard';
-import type { ApiResponse } from '@/types/api';
 
 export default function IntegratedPage() {
-  const [loading, setLoading] = useState(true);
-  const [filters, setFilters] = useState({ year: '', crop: '', field: '' });
-  const [filterOptions, setFilterOptions] = useState<{
-    years: FilterOption[];
-    crops: FilterOption[];
-    fields: FilterOption[];
-  }>({ years: [], crops: [], fields: [] });
-
-  const [performance, setPerformance] = useState<CropPerformanceData[]>([]);
-  const [trends, setTrends] = useState<YieldTrendPoint[]>([]);
-  const [financialSummary, setFinancialSummary] = useState<FinancialSummaryData[]>([]);
-  const [costBreakdown, setCostBreakdown] = useState<CostBreakdown[]>([]);
-
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    const params = new URLSearchParams();
-    if (filters.year) params.set('year', filters.year);
-    if (filters.crop) params.set('cropId', filters.crop);
-    if (filters.field) params.set('fieldId', filters.field);
-
-    const [cropRes, finRes] = await Promise.all([
-      fetch(`/api/dashboard/crop-performance?${params}`),
-      fetch(`/api/dashboard/financial?${params}`),
-    ]);
-
-    const cropJson: ApiResponse<{ performance: CropPerformanceData[]; trends: YieldTrendPoint[] }> = await cropRes.json();
-    const finJson: ApiResponse<{ summary: FinancialSummaryData[]; costBreakdown: CostBreakdown[] }> = await finRes.json();
-
-    if (cropJson.success && cropJson.data) {
-      setPerformance(cropJson.data.performance);
-      setTrends(cropJson.data.trends);
-
-      if (filterOptions.years.length === 0) {
-        const years = [...new Set(cropJson.data.performance.map((p) => String(p.year)))].sort().reverse();
-        const crops = [...new Set(cropJson.data.performance.map((p) => p.cropName))].sort();
-        const fields = [...new Set(cropJson.data.performance.map((p) => p.fieldName))].sort();
-        setFilterOptions({
-          years: years.map((y) => ({ value: y, label: y })),
-          crops: crops.map((c) => ({ value: c, label: c })),
-          fields: fields.map((f) => ({ value: f, label: f })),
-        });
-      }
-    }
-
-    if (finJson.success && finJson.data) {
-      setFinancialSummary(finJson.data.summary);
-      setCostBreakdown(finJson.data.costBreakdown);
-    }
-
-    setLoading(false);
-  }, [filters, filterOptions.years.length]);
-
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
-
-  if (loading && performance.length === 0) {
-    return (
-      <div className="flex h-64 items-center justify-center">
-        <LoadingSpinner size="lg" />
-      </div>
-    );
-  }
-
   return (
     <div>
-      <h1 className="mb-6 text-2xl font-bold text-slate-900 dark:text-slate-100">Integrated View</h1>
+      <h1 className="mb-6 text-2xl font-bold text-slate-900 dark:text-slate-100">
+        Integrated Analytics
+      </h1>
 
-      <div className="mb-6">
-        <FilterBar
-          years={filterOptions.years}
-          crops={filterOptions.crops}
-          fields={filterOptions.fields}
-          selectedYear={filters.year}
-          selectedCrop={filters.crop}
-          selectedField={filters.field}
-          onYearChange={(v) => setFilters((f) => ({ ...f, year: v }))}
-          onCropChange={(v) => setFilters((f) => ({ ...f, crop: v }))}
-          onFieldChange={(v) => setFilters((f) => ({ ...f, field: v }))}
-        />
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card title="Crop Performance">
-          <CropChart performance={performance} trends={trends} />
-        </Card>
-        <Card title="Financial Overview">
-          <FinancialChart summary={financialSummary} costBreakdown={costBreakdown} />
-        </Card>
-      </div>
+      <Card>
+        <div className="py-12 text-center">
+          <p className="text-lg font-medium text-slate-700 dark:text-slate-300">
+            Phase 2: Cross-Database Analytics
+          </p>
+          <p className="mx-auto mt-3 max-w-lg text-sm text-slate-500 dark:text-slate-400">
+            Cross-database analytics will link corn yields, bean quality, and financial performance
+            by field and year. This will enable questions like &ldquo;Which fields are most profitable
+            for corn vs. beans?&rdquo; and &ldquo;How does dockage impact profitability?&rdquo;
+          </p>
+          <div className="mt-6 grid gap-4 sm:grid-cols-3">
+            <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4 dark:border-yellow-800 dark:bg-yellow-900/20">
+              <p className="font-medium text-yellow-700 dark:text-yellow-400">Corn Yields</p>
+              <p className="mt-1 text-xs text-yellow-600 dark:text-yellow-500">7,571 load records</p>
+            </div>
+            <div className="rounded-lg border border-green-200 bg-green-50 p-4 dark:border-green-800 dark:bg-green-900/20">
+              <p className="font-medium text-green-700 dark:text-green-400">Bean Quality</p>
+              <p className="mt-1 text-xs text-green-600 dark:text-green-500">1,877 delivery records</p>
+            </div>
+            <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 dark:border-blue-800 dark:bg-blue-900/20">
+              <p className="font-medium text-blue-700 dark:text-blue-400">Financial P&L</p>
+              <p className="mt-1 text-xs text-blue-600 dark:text-blue-500">1,208 annual summaries</p>
+            </div>
+          </div>
+        </div>
+      </Card>
     </div>
   );
 }

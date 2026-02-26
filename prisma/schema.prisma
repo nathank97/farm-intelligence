@@ -1,13 +1,12 @@
 // =============================================================================
-// Farm Intelligence Platform — Prisma Schema
+// Farm Intelligence Platform — Unified Prisma Schema
 // =============================================================================
-// Database: Supabase Postgres
-// Key decisions:
-//   - UUID primary keys (Supabase convention, prevents ID enumeration)
-//   - Composite unique on FieldCropYear(fieldId, cropId, year) prevents dupes
-//   - JSON for quality_metrics (semi-structured, varies by crop type)
-//   - Cascade deletes from parent → child where data is dependent
-//   - All tables have createdAt/updatedAt for audit trail
+// Supports 3 data sources:
+//   1. Corn Database: 7,571 load-level delivery records (2003–2024)
+//   2. Edibles Database: 1,877 load-level bean deliveries with dockage (2000–2024)
+//   3. Field P&L: 1,208 annual field profit/loss summaries (1999–2024)
+//
+// 79 unique fields across all files, 38 shared by all three.
 // =============================================================================
 
 generator client {
@@ -19,10 +18,7 @@ datasource db {
 }
 
 // =============================================================================
-// Auth: Managed by Supabase Auth, extended with role
-// =============================================================================
-// We do NOT manage auth.users directly — Supabase owns that table.
-// This profile table links to Supabase's auth.users via id.
+// Enums
 // =============================================================================
 
 enum UserRole {
@@ -30,145 +26,406 @@ enum UserRole {
   VIEWER
 }
 
+enum CropCategory {
+  CORN
+  EDIBLE_BEAN
+  GRAIN
+  SPECIALTY
+  FORAGE
+}
+
+enum CornType {
+  DRY_CORN
+  SILAGE
+  HIGH_MOISTURE_CORN
+  ORGANIC_CORN
+  EARLAGE
+}
+
+enum BeanType {
+  BLACKS
+  DARK_REDS
+  LIGHT_REDS
+  ORGANIC_BLACKS
+  ORGANIC_DARK_REDS
+  PINTOS
+  SMALL_REDS
+  WHITES
+}
+
+// =============================================================================
+// Auth
+// =============================================================================
+
 model UserProfile {
-  id        String   @id @db.Uuid // Matches Supabase auth.users.id
+  id        String   @id @db.Uuid
   email     String   @unique
   fullName  String?  @map("full_name")
   role      UserRole @default(VIEWER)
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  // Relations
   importLogs ImportLog[]
 
   @@map("user_profiles")
 }
 
 // =============================================================================
-// Core Domain Models
+// Reference Data: Fields
 // =============================================================================
 
 model Field {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name      String   @unique // e.g., "North Quarter", "River Field"
-  acreage   Decimal  @db.Decimal(10, 2)
-  soilType  String?  @map("soil_type") // e.g., "Clay Loam", "Sandy"
-  location  String?  // Free-text or coordinates
-  isActive  Boolean  @default(true) @map("is_active")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  fieldNumber Int?     @unique @map("field_number") // From Corn/P&L (null for Edibles-only fields)
+  name        String   @unique                       // Canonical name
+  acres       Decimal  @db.Decimal(10, 2)            // Most recent acreage
+  areaCode    Int?     @map("area_code")             // Geographic zone 1-7 (from P&L)
+  patternTile Int?     @map("pattern_tile")          // Drainage tile pattern 1 or 2
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
-  // Relations
+  cornLoads      CornLoad[]
+  edibleLoads    EdibleLoad[]
   fieldCropYears FieldCropYear[]
 
   @@map("fields")
 }
 
-model Crop {
-  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name      String   @unique // e.g., "Winter Wheat", "Oilseed Rape"
-  category  String?  // e.g., "Cereal", "Oilseed", "Pulse"
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+// =============================================================================
+// Reference Data: Crops (31 types from P&L)
+// =============================================================================
 
-  // Relations
-  varieties      Variety[]
+model Crop {
+  id        String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String       @unique // "Dry Corn", "Blacks", "Soybeans", etc.
+  category  CropCategory
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+
   fieldCropYears FieldCropYear[]
 
   @@map("crops")
 }
 
-model Variety {
+// =============================================================================
+// Reference Data: Seed Companies (Corn only)
+// =============================================================================
+
+model SeedCompany {
   id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name      String   // e.g., "Skyfall", "Crusoe"
-  cropId    String   @map("crop_id") @db.Uuid
+  name      String   @unique // "Dekalb", "Becks/Dekalb", etc.
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  // Relations
-  crop           Crop            @relation(fields: [cropId], references: [id], onDelete: Cascade)
-  fieldCropYears FieldCropYear[]
+  varieties Variety[]
 
-  @@unique([cropId, name]) // No duplicate variety names within a crop
+  @@map("seed_companies")
+}
+
+// =============================================================================
+// Reference Data: Varieties (Corn + Edible)
+// =============================================================================
+
+model Variety {
+  id            String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name          String       // "54-40", "Spectre", "Eclipse", etc.
+  seedCompanyId String?      @map("seed_company_id") @db.Uuid // Null for edible varieties
+  cropCategory  CropCategory // CORN or EDIBLE_BEAN
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+
+  seedCompany SeedCompany? @relation(fields: [seedCompanyId], references: [id], onDelete: SetNull)
+  cornLoads   CornLoad[]
+  edibleLoads EdibleLoad[]
+
+  @@unique([seedCompanyId, name, cropCategory])
   @@map("varieties")
 }
 
 // =============================================================================
-// FieldCropYear: The central fact table
+// Fact Table 1: CornLoad (one per truckload, 7,571 rows)
 // =============================================================================
-// Each row = one field × one crop × one harvest year.
-// This is where yield, cost, and quality data live.
+
+model CornLoad {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+
+  year             Int
+  fieldId          String   @map("field_id") @db.Uuid
+  varietyId         String?  @map("variety_id") @db.Uuid
+  cornType         CornType @map("corn_type")
+
+  // Dates
+  nominalPlantDate   DateTime? @map("nominal_plant_date") @db.Date
+  nominalHarvestDate DateTime? @map("nominal_harvest_date") @db.Date
+  plantingDate       DateTime? @map("planting_date") @db.Date
+  harvestDate        DateTime? @map("harvest_date") @db.Date
+
+  // Delivery
+  deliveredTo      String?  @map("delivered_to")
+
+  // Weight Measurements
+  testWeight       Decimal? @map("test_weight") @db.Decimal(10, 2)
+  moisture         Decimal? @db.Decimal(10, 2)
+  grossWeight      Decimal? @map("gross_weight") @db.Decimal(12, 2)
+  tareWeight       Decimal? @map("tare_weight") @db.Decimal(12, 2)
+  netWeight        Decimal? @map("net_weight") @db.Decimal(12, 2)
+
+  // Bushel (grain types)
+  wetBushel        Decimal? @map("wet_bushel") @db.Decimal(12, 2)
+  dryBushel        Decimal? @map("dry_bushel") @db.Decimal(12, 2)
+  commonDryBushel  Decimal? @map("common_dry_bushel") @db.Decimal(12, 2)
+  shrink           Decimal? @db.Decimal(8, 4)
+
+  // Tonnage (silage/earlage)
+  dmTons           Decimal? @map("dm_tons") @db.Decimal(12, 2)
+  origTpa          Decimal? @map("orig_tpa") @db.Decimal(10, 2)
+  adjTpa           Decimal? @map("adj_tpa") @db.Decimal(10, 2)
+
+  // Yield (bu/ac)
+  wetYield         Decimal? @map("wet_yield") @db.Decimal(10, 2)
+  dryYield         Decimal? @map("dry_yield") @db.Decimal(10, 2)
+  commonDryYield   Decimal? @map("common_dry_yield") @db.Decimal(10, 2)
+
+  // Financial
+  finalPrice       Decimal? @map("final_price") @db.Decimal(10, 4)
+
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  field   Field    @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  variety Variety? @relation(fields: [varietyId], references: [id], onDelete: SetNull)
+
+  @@index([year])
+  @@index([fieldId])
+  @@index([cornType])
+  @@index([fieldId, year])
+  @@map("corn_loads")
+}
+
+// =============================================================================
+// Fact Table 2: EdibleLoad (one per delivery, 1,877 rows)
+// =============================================================================
+
+model EdibleLoad {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+
+  year             Int
+  fieldId          String   @map("field_id") @db.Uuid
+  varietyId         String?  @map("variety_id") @db.Uuid
+  beanType         BeanType @map("bean_type")
+
+  // Dates
+  plantingDate       DateTime? @map("planting_date") @db.Date
+  nominalPlantDate   DateTime? @map("nominal_plant_date") @db.Date
+  harvestDate        DateTime? @map("harvest_date") @db.Date
+  nominalHarvestDate DateTime? @map("nominal_harvest_date") @db.Date
+
+  // Field info
+  refNumber        Int?     @map("ref_number")
+
+  // Quality: Moisture
+  moisture         Decimal? @db.Decimal(8, 2)
+  moistDock        Decimal? @map("moist_dock") @db.Decimal(10, 2)
+  avgMoisture      Decimal? @map("avg_moisture") @db.Decimal(8, 2)
+  moistDollarDocked Decimal? @map("moist_dollar_docked") @db.Decimal(10, 2)
+  moistPerAcDocked Decimal? @map("moist_per_ac_docked") @db.Decimal(10, 2)
+
+  // Quality: Damage
+  damage           Decimal? @db.Decimal(8, 2)
+  damageDock       Decimal? @map("damage_dock") @db.Decimal(10, 2)
+  avgDamage        Decimal? @map("avg_damage") @db.Decimal(8, 2)
+  damageDollarDocked Decimal? @map("damage_dollar_docked") @db.Decimal(10, 2)
+  damagePerAcDocked Decimal? @map("damage_per_ac_docked") @db.Decimal(10, 2)
+
+  // Quality: Foreign Material
+  fm               Decimal? @db.Decimal(8, 2)
+  fmDock           Decimal? @map("fm_dock") @db.Decimal(10, 2)
+  avgFm            Decimal? @map("avg_fm") @db.Decimal(8, 2)
+  fmDollarDocked   Decimal? @map("fm_dollar_docked") @db.Decimal(10, 2)
+  fmPerAcDocked    Decimal? @map("fm_per_ac_docked") @db.Decimal(10, 2)
+
+  // Quality: Skin Checks
+  skinCheck        Decimal? @map("skin_check") @db.Decimal(8, 2)
+  checksDock       Decimal? @map("checks_dock") @db.Decimal(10, 2)
+  avgSkinCheck     Decimal? @map("avg_skin_check") @db.Decimal(8, 2)
+  skinCheckDollarDocked Decimal? @map("skin_check_dollar_docked") @db.Decimal(10, 2)
+  skinCheckPerAc   Decimal? @map("skin_check_per_ac") @db.Decimal(10, 2)
+
+  // Quality: Sprouts/Splits
+  sproutsSplits    Decimal? @map("sprouts_splits") @db.Decimal(8, 2)
+  splitsDock       Decimal? @map("splits_dock") @db.Decimal(10, 2)
+  avgSproutsSplits Decimal? @map("avg_sprouts_splits") @db.Decimal(8, 2)
+  sproutsDollarDocked Decimal? @map("sprouts_dollar_docked") @db.Decimal(10, 2)
+  sproutsPerAcDocked Decimal? @map("sprouts_per_ac_docked") @db.Decimal(10, 2)
+
+  // Dockage Totals
+  grossUnits       Decimal? @map("gross_units") @db.Decimal(12, 2)
+  dockedUnits      Decimal? @map("docked_units") @db.Decimal(12, 2)
+  shrink           Decimal? @db.Decimal(10, 2)
+  dockPlusShrink   Decimal? @map("dock_plus_shrink") @db.Decimal(12, 2)
+  netUnits         Decimal? @map("net_units") @db.Decimal(12, 2)
+
+  // Yield (cwt/acre for beans)
+  yield            Decimal? @db.Decimal(10, 2)
+
+  // Dockage financial summary
+  totalDollarDocked Decimal? @map("total_dollar_docked") @db.Decimal(12, 2)
+  perAcDocked       Decimal? @map("per_ac_docked") @db.Decimal(10, 2)
+
+  // Financial
+  finalPrice       Decimal? @map("final_price") @db.Decimal(10, 4)
+
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  field   Field    @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  variety Variety? @relation(fields: [varietyId], references: [id], onDelete: SetNull)
+
+  @@index([year])
+  @@index([fieldId])
+  @@index([beanType])
+  @@index([fieldId, year])
+  @@map("edible_loads")
+}
+
+// =============================================================================
+// Fact Table 3: FieldCropYear (P&L summaries, 1,208 rows)
 // =============================================================================
 
 model FieldCropYear {
-  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  fieldId        String   @map("field_id") @db.Uuid
-  cropId         String   @map("crop_id") @db.Uuid
-  varietyId      String?  @map("variety_id") @db.Uuid
-  year           Int      // Harvest year, e.g. 2024
-  yieldPerAcre   Decimal? @map("yield_per_acre") @db.Decimal(10, 2) // tonnes/acre
-  totalYield     Decimal? @map("total_yield") @db.Decimal(12, 2) // tonnes
-  plantingDate   DateTime? @map("planting_date") @db.Date
-  harvestDate    DateTime? @map("harvest_date") @db.Date
-  qualityMetrics Json?    @map("quality_metrics") // e.g., { moisture: 14.2, protein: 12.5 }
-  notes          String?
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
 
-  // Relations
-  field      Field      @relation(fields: [fieldId], references: [id], onDelete: Cascade)
-  crop       Crop       @relation(fields: [cropId], references: [id], onDelete: Cascade)
-  variety    Variety?   @relation(fields: [varietyId], references: [id], onDelete: SetNull)
-  financials Financial?
+  year             Int
+  fieldId          String   @map("field_id") @db.Uuid
+  cropId           String   @map("crop_id") @db.Uuid
+  acres            Decimal  @db.Decimal(10, 2)
 
-  // Business rule: one crop per field per year
+  // Production
+  yield            Decimal? @db.Decimal(12, 4)  // In crop's natural unit
+  totalProduction  Decimal? @map("total_production") @db.Decimal(14, 2)
+
+  // Revenue (all $/acre unless noted)
+  pricePerUnit     Decimal? @map("price_per_unit") @db.Decimal(10, 4) // $/Crop Unit
+  cropSale         Decimal? @map("crop_sale") @db.Decimal(10, 2)
+  govPayments      Decimal? @map("gov_payments") @db.Decimal(10, 2)
+  miscIncome       Decimal? @map("misc_income") @db.Decimal(10, 2) // Straw etc.
+  hedging          Decimal? @db.Decimal(10, 2)
+  interestPatronage Decimal? @map("interest_patronage") @db.Decimal(10, 2)
+  insuranceIncome  Decimal? @map("insurance_income") @db.Decimal(10, 2)
+  totalIncPerAcre  Decimal? @map("total_inc_per_acre") @db.Decimal(10, 2)
+
+  // Expenses (all $/acre)
+  machineLaborCost Decimal? @map("machine_labor_cost") @db.Decimal(10, 2)
+  chemicalsCost    Decimal? @map("chemicals_cost") @db.Decimal(10, 2)
+  seedCost         Decimal? @map("seed_cost") @db.Decimal(10, 2)
+  fertilizerCost   Decimal? @map("fertilizer_cost") @db.Decimal(10, 2)
+  rentCost         Decimal? @map("rent_cost") @db.Decimal(10, 2)
+  landImprovCost   Decimal? @map("land_improv_cost") @db.Decimal(10, 2)
+  insuranceExpense Decimal? @map("insurance_expense") @db.Decimal(10, 2)
+  miscExpense      Decimal? @map("misc_expense") @db.Decimal(10, 2)
+  totalCostPerAcre Decimal? @map("total_cost_per_acre") @db.Decimal(10, 2)
+
+  // Profit/Loss
+  profitPerAcreByCrop Decimal? @map("profit_per_acre_by_crop") @db.Decimal(10, 2)
+  totalNetByCrop      Decimal? @map("total_net_by_crop") @db.Decimal(14, 2)
+  profitPerAcreByField Decimal? @map("profit_per_acre_by_field") @db.Decimal(10, 2)
+  roi                  Decimal? @db.Decimal(10, 6)
+
+  // Breakevens
+  breakevenUnitsPerAcre Decimal? @map("breakeven_units_per_acre") @db.Decimal(10, 4)
+  breakevenPricePerUnit Decimal? @map("breakeven_price_per_unit") @db.Decimal(10, 4)
+
+  // Rental Analysis
+  rentAvgAdjust     Decimal? @map("rent_avg_adjust") @db.Decimal(10, 2)
+  goingRent         Decimal? @map("going_rent") @db.Decimal(10, 2)
+  adjProfitPerAcre  Decimal? @map("adj_profit_per_acre") @db.Decimal(10, 2)
+  adjTotalNet       Decimal? @map("adj_total_net") @db.Decimal(14, 2)
+  adjProfitByField  Decimal? @map("adj_profit_by_field") @db.Decimal(10, 2)
+
+  // Data Quality
+  dataQuality      String?  @map("data_quality")  // "2", "3", "4-Prelim", "5"
+  comments         String?
+  status           String?  // Reconciliation status
+
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  field Field @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  crop  Crop  @relation(fields: [cropId], references: [id], onDelete: Cascade)
+
   @@unique([fieldId, cropId, year])
   @@index([year])
+  @@index([fieldId])
   @@index([cropId])
   @@map("field_crop_years")
 }
 
 // =============================================================================
-// Financials: Linked 1:1 with FieldCropYear
+// Season Data (Rainfall — shared across corn/edibles)
 // =============================================================================
 
-model Financial {
-  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  fieldCropYearId String   @unique @map("field_crop_year_id") @db.Uuid
-  seedCost        Decimal? @map("seed_cost") @db.Decimal(10, 2)
-  fertilizerCost  Decimal? @map("fertilizer_cost") @db.Decimal(10, 2)
-  sprayCost       Decimal? @map("spray_cost") @db.Decimal(10, 2)
-  operationsCost  Decimal? @map("operations_cost") @db.Decimal(10, 2)
-  totalCost       Decimal? @map("total_cost") @db.Decimal(12, 2)
-  revenuePerTonne Decimal? @map("revenue_per_tonne") @db.Decimal(10, 2)
-  totalRevenue    Decimal? @map("total_revenue") @db.Decimal(12, 2)
-  grossMargin     Decimal? @map("gross_margin") @db.Decimal(12, 2)
-  costPerAcre     Decimal? @map("cost_per_acre") @db.Decimal(10, 2)
-  revenuePerAcre  Decimal? @map("revenue_per_acre") @db.Decimal(10, 2)
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+model SeasonData {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  year       Int      @unique // Rainfall is per-year, not per-field
+  rainAprSep Decimal? @map("rain_apr_sep") @db.Decimal(8, 2)
+  rainMayAug Decimal? @map("rain_may_aug") @db.Decimal(8, 2)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
 
-  // Relations
-  fieldCropYear FieldCropYear @relation(fields: [fieldCropYearId], references: [id], onDelete: Cascade)
-
-  @@map("financials")
+  @@map("season_data")
 }
 
 // =============================================================================
-// ImportLog: Audit trail for all data imports
+// Bean Price History (from Edibles Price Tables sheet)
+// =============================================================================
+
+model BeanPriceHistory {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  beanType        BeanType @map("bean_type")
+  year            Int
+  finalPrice      Decimal? @map("final_price") @db.Decimal(10, 4)    // $/cwt
+  contractedPrice Decimal? @map("contracted_price") @db.Decimal(10, 4)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@unique([beanType, year])
+  @@map("bean_price_history")
+}
+
+// =============================================================================
+// Rental Rates (from P&L Rental Adjustment Sheet)
+// =============================================================================
+
+model RentalRate {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  areaCode       Int      @map("area_code") // 1-7
+  areaName       String   @map("area_name") // "South Alberta-West River", etc.
+  yearRangeStart Int      @map("year_range_start")
+  yearRangeEnd   Int      @map("year_range_end")
+  averageRent    Decimal  @map("average_rent") @db.Decimal(10, 2)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@unique([areaCode, yearRangeStart])
+  @@map("rental_rates")
+}
+
+// =============================================================================
+// Import Log
 // =============================================================================
 
 model ImportLog {
   id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId        String   @map("user_id") @db.Uuid
   fileName      String   @map("file_name")
+  fileType      String   @map("file_type") // "corn", "edibles", "field_pl"
   rowsProcessed Int      @map("rows_processed")
   rowsFailed    Int      @map("rows_failed")
   status        String   // "success" | "partial" | "failed"
-  errors        Json?    // Array of { row: number, field: string, message: string }
+  errors        Json?
   createdAt     DateTime @default(now()) @map("created_at")
 
-  // Relations
   user UserProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])

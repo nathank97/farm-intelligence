@@ -1,10 +1,68 @@
-import Link from 'next/link';
-import { getStatsOverview } from '@/services/cropService';
-import StatsCard from '@/components/dashboard/StatsCard';
-import { formatCurrency, formatNumber } from '@/utils/formatters';
+'use client';
 
-export default async function DashboardPage() {
-  const stats = await getStatsOverview();
+import { useState, useEffect } from 'react';
+import Link from 'next/link';
+import Card from '@/components/ui/Card';
+import LoadingSpinner from '@/components/ui/LoadingSpinner';
+
+interface DbSummary {
+  corn: { totalLoads: number; totalFields: number; yearRange: string };
+  edibles: { totalLoads: number; totalFields: number; yearRange: string };
+  financial: { totalRecords: number; totalFields: number; yearRange: string };
+}
+
+export default function DashboardPage() {
+  const [data, setData] = useState<DbSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch('/api/dashboard/overview')
+      .then((res) => res.json())
+      .then((json) => {
+        if (json.success) setData(json.data);
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <LoadingSpinner />;
+
+  const databases = data ? [
+    {
+      title: 'Corn Database',
+      href: '/dashboard/corn',
+      stats: [
+        { label: 'Loads', value: data.corn.totalLoads.toLocaleString() },
+        { label: 'Fields', value: String(data.corn.totalFields) },
+        { label: 'Years', value: data.corn.yearRange },
+      ],
+      color: 'text-yellow-600 dark:text-yellow-400',
+      borderColor: 'border-yellow-200 dark:border-yellow-800',
+    },
+    {
+      title: 'Edibles Database',
+      href: '/dashboard/edibles',
+      stats: [
+        { label: 'Loads', value: data.edibles.totalLoads.toLocaleString() },
+        { label: 'Fields', value: String(data.edibles.totalFields) },
+        { label: 'Years', value: data.edibles.yearRange },
+      ],
+      color: 'text-green-600 dark:text-green-400',
+      borderColor: 'border-green-200 dark:border-green-800',
+    },
+    {
+      title: 'Field P&L',
+      href: '/dashboard/financial',
+      stats: [
+        { label: 'Records', value: data.financial.totalRecords.toLocaleString() },
+        { label: 'Fields', value: String(data.financial.totalFields) },
+        { label: 'Years', value: data.financial.yearRange },
+      ],
+      color: 'text-blue-600 dark:text-blue-400',
+      borderColor: 'border-blue-200 dark:border-blue-800',
+    },
+  ] : [];
+
+  const isEmpty = data && data.corn.totalLoads === 0 && data.edibles.totalLoads === 0 && data.financial.totalRecords === 0;
 
   return (
     <div>
@@ -12,56 +70,34 @@ export default async function DashboardPage() {
         Dashboard Overview
       </h1>
 
-      <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatsCard title="Total Fields" value={String(stats.totalFields)} />
-        <StatsCard title="Total Crops" value={String(stats.totalCrops)} />
-        <StatsCard title="Total Acreage" value={formatNumber(stats.totalAcreage, 0)} />
-        <StatsCard
-          title="Avg Yield/Acre"
-          value={stats.avgYieldPerAcre != null ? formatNumber(stats.avgYieldPerAcre) : '-'}
-        />
-        <StatsCard
-          title="Avg Gross Margin"
-          value={stats.avgGrossMargin != null ? formatCurrency(stats.avgGrossMargin) : '-'}
-        />
-        <StatsCard
-          title="Latest Year"
-          value={stats.latestYear != null ? String(stats.latestYear) : '-'}
-        />
-      </div>
-
-      <h2 className="mb-4 text-lg font-semibold text-slate-800 dark:text-slate-200">
-        Quick Links
-      </h2>
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <Link
-          href="/dashboard/crop-performance"
-          className="rounded-xl border border-slate-200 bg-white p-6 transition-shadow hover:shadow-md dark:border-slate-700 dark:bg-slate-900"
-        >
-          <h3 className="font-semibold text-green-700">Crop Performance</h3>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            View yield data, trends, and field comparisons
-          </p>
-        </Link>
-        <Link
-          href="/dashboard/financial"
-          className="rounded-xl border border-slate-200 bg-white p-6 transition-shadow hover:shadow-md dark:border-slate-700 dark:bg-slate-900"
-        >
-          <h3 className="font-semibold text-green-700">Financial Summary</h3>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Revenue, costs, margins, and breakdowns
-          </p>
-        </Link>
-        <Link
-          href="/dashboard/integrated"
-          className="rounded-xl border border-slate-200 bg-white p-6 transition-shadow hover:shadow-md dark:border-slate-700 dark:bg-slate-900"
-        >
-          <h3 className="font-semibold text-green-700">Integrated View</h3>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Combined crop and financial analysis
-          </p>
-        </Link>
-      </div>
+      {isEmpty ? (
+        <Card>
+          <div className="py-8 text-center">
+            <p className="text-lg font-medium text-slate-700 dark:text-slate-300">No data imported yet</p>
+            <p className="mt-2 text-sm text-slate-500">
+              Go to <Link href="/admin/upload" className="text-green-600 underline">Import Data</Link> to upload your Excel files.
+            </p>
+          </div>
+        </Card>
+      ) : (
+        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+          {databases.map((db) => (
+            <Link key={db.href} href={db.href}>
+              <div className={`rounded-xl border bg-white p-6 transition-shadow hover:shadow-md dark:bg-slate-900 ${db.borderColor}`}>
+                <h3 className={`text-lg font-semibold ${db.color}`}>{db.title}</h3>
+                <div className="mt-4 grid grid-cols-3 gap-2">
+                  {db.stats.map((stat) => (
+                    <div key={stat.label}>
+                      <p className="text-xl font-bold text-slate-900 dark:text-slate-100">{stat.value}</p>
+                      <p className="text-xs text-slate-500">{stat.label}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </Link>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

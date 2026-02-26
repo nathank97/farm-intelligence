@@ -2,148 +2,143 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import FilterBar from '@/components/dashboard/FilterBar';
-import FinancialChart from '@/components/dashboard/FinancialChart';
 import DataTable from '@/components/ui/DataTable';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
 import Card from '@/components/ui/Card';
 import StatsCard from '@/components/dashboard/StatsCard';
-import Button from '@/components/ui/Button';
-import { downloadCsv } from '@/utils/csvExport';
-import { formatCurrency } from '@/utils/formatters';
-import type { FilterOption, FinancialSummaryData, CostBreakdown } from '@/types/dashboard';
-import type { ApiResponse } from '@/types/api';
+import { formatCurrency, formatNumber } from '@/utils/formatters';
+import type { FieldPLSummary, YearOverYearFinancial, FilterOption } from '@/types/dashboard';
+import {
+  ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+} from 'recharts';
 
-interface FinancialStats {
-  totalRevenue: number;
-  totalCost: number;
-  totalGrossMargin: number;
-  avgCostPerAcre: number;
-  avgRevenuePerAcre: number;
-  avgGrossMargin: number;
+interface FinancialData {
+  summaries: FieldPLSummary[];
+  expenses: { category: string; amount: number; percentage: number }[];
+  revenue: { category: string; amount: number; percentage: number }[];
+  yearOverYear: YearOverYearFinancial[];
+  filterOptions: {
+    years: FilterOption[];
+    fields: FilterOption[];
+    crops: FilterOption[];
+    cropCategories: FilterOption[];
+  };
 }
 
 export default function FinancialPage() {
+  const [data, setData] = useState<FinancialData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [filters, setFilters] = useState({ year: '', crop: '', field: '' });
-  const [filterOptions, setFilterOptions] = useState<{
-    years: FilterOption[];
-    crops: FilterOption[];
-    fields: FilterOption[];
-  }>({ years: [], crops: [], fields: [] });
-  const [summary, setSummary] = useState<FinancialSummaryData[]>([]);
-  const [costBreakdown, setCostBreakdown] = useState<CostBreakdown[]>([]);
-  const [stats, setStats] = useState<FinancialStats | null>(null);
+  const [year, setYear] = useState('');
+  const [fieldId, setFieldId] = useState('');
+  const [cropCategory, setCropCategory] = useState('');
+  const [crop, setCrop] = useState('');
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     const params = new URLSearchParams();
-    if (filters.year) params.set('year', filters.year);
-    if (filters.crop) params.set('cropId', filters.crop);
-    if (filters.field) params.set('fieldId', filters.field);
+    if (year) params.set('year', year);
+    if (fieldId) params.set('fieldId', fieldId);
+    if (cropCategory) params.set('cropCategory', cropCategory);
+    if (crop) params.set('crop', crop);
 
     const res = await fetch(`/api/dashboard/financial?${params}`);
-    const json: ApiResponse<{
-      summary: FinancialSummaryData[];
-      costBreakdown: CostBreakdown[];
-      stats: FinancialStats;
-    }> = await res.json();
-
-    if (json.success && json.data) {
-      setSummary(json.data.summary);
-      setCostBreakdown(json.data.costBreakdown);
-      setStats(json.data.stats);
-
-      // Build filter options from data on first load
-      if (filterOptions.years.length === 0) {
-        const years = [...new Set(json.data.summary.map((s) => String(s.year)))].sort().reverse();
-        const crops = [...new Set(json.data.summary.map((s) => s.cropName))].sort();
-        const fields = [...new Set(json.data.summary.map((s) => s.fieldName))].sort();
-        setFilterOptions({
-          years: years.map((y) => ({ value: y, label: y })),
-          crops: crops.map((c) => ({ value: c, label: c })),
-          fields: fields.map((f) => ({ value: f, label: f })),
-        });
-      }
-    }
+    const json = await res.json();
+    if (json.success) setData(json.data);
     setLoading(false);
-  }, [filters, filterOptions.years.length]);
+  }, [year, fieldId, cropCategory, crop]);
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  useEffect(() => { fetchData(); }, [fetchData]);
 
-  const handleExport = () => {
-    const header = 'Field,Crop,Year,Total Cost,Total Revenue,Gross Margin,Cost/Acre,Revenue/Acre\n';
-    const rows = summary.map((s) =>
-      `"${s.fieldName}","${s.cropName}",${s.year},${s.totalCost ?? ''},${s.totalRevenue ?? ''},${s.grossMargin ?? ''},${s.costPerAcre ?? ''},${s.revenuePerAcre ?? ''}`
-    ).join('\n');
-    downloadCsv(header + rows, 'financial-summary.csv');
-  };
+  // Compute summary stats
+  const stats = data?.summaries ? (() => {
+    const incomes = data.summaries.map((s) => s.totalIncPerAcre).filter((v): v is number => v !== null);
+    const costs = data.summaries.map((s) => s.totalCostPerAcre).filter((v): v is number => v !== null);
+    const profits = data.summaries.map((s) => s.profitPerAcreByCrop).filter((v): v is number => v !== null);
+    return {
+      avgIncome: incomes.length > 0 ? incomes.reduce((a, b) => a + b, 0) / incomes.length : 0,
+      avgCost: costs.length > 0 ? costs.reduce((a, b) => a + b, 0) / costs.length : 0,
+      avgProfit: profits.length > 0 ? profits.reduce((a, b) => a + b, 0) / profits.length : 0,
+      recordCount: data.summaries.length,
+    };
+  })() : null;
 
-  if (loading && summary.length === 0) {
-    return (
-      <div className="flex h-64 items-center justify-center">
-        <LoadingSpinner size="lg" />
-      </div>
-    );
-  }
+  if (loading && !data) return <LoadingSpinner />;
 
   return (
     <div>
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Financial Summary</h1>
-        <Button variant="outline" size="sm" onClick={handleExport} disabled={summary.length === 0}>
-          Export CSV
-        </Button>
-      </div>
+      <h1 className="mb-6 text-2xl font-bold text-slate-900 dark:text-slate-100">
+        Financial Overview
+      </h1>
 
       {stats && (
-        <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <StatsCard title="Total Revenue" value={formatCurrency(stats.totalRevenue)} />
-          <StatsCard title="Total Cost" value={formatCurrency(stats.totalCost)} />
-          <StatsCard title="Total Gross Margin" value={formatCurrency(stats.totalGrossMargin)} />
-          <StatsCard title="Avg Cost/Acre" value={formatCurrency(stats.avgCostPerAcre)} />
-          <StatsCard title="Avg Revenue/Acre" value={formatCurrency(stats.avgRevenuePerAcre)} />
-          <StatsCard title="Avg Gross Margin" value={formatCurrency(stats.avgGrossMargin)} />
+        <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <StatsCard title="Records" value={String(stats.recordCount)} />
+          <StatsCard title="Avg Income/Ac" value={formatCurrency(stats.avgIncome)} />
+          <StatsCard title="Avg Cost/Ac" value={formatCurrency(stats.avgCost)} />
+          <StatsCard title="Avg Profit/Ac" value={formatCurrency(stats.avgProfit)} />
         </div>
       )}
 
-      <div className="mb-6">
-        <FilterBar
-          years={filterOptions.years}
-          crops={filterOptions.crops}
-          fields={filterOptions.fields}
-          selectedYear={filters.year}
-          selectedCrop={filters.crop}
-          selectedField={filters.field}
-          onYearChange={(v) => setFilters((f) => ({ ...f, year: v }))}
-          onCropChange={(v) => setFilters((f) => ({ ...f, crop: v }))}
-          onFieldChange={(v) => setFilters((f) => ({ ...f, field: v }))}
-        />
-      </div>
+      {data && (
+        <div className="mb-6">
+          <FilterBar
+            filters={[
+              { key: 'year', label: 'All Years', options: data.filterOptions.years, value: year, onChange: setYear },
+              { key: 'field', label: 'All Fields', options: data.filterOptions.fields, value: fieldId, onChange: setFieldId },
+              { key: 'cropCategory', label: 'All Categories', options: data.filterOptions.cropCategories, value: cropCategory, onChange: setCropCategory },
+              { key: 'crop', label: 'All Crops', options: data.filterOptions.crops, value: crop, onChange: setCrop },
+            ]}
+          />
+        </div>
+      )}
 
-      <div className="mb-6">
-        <Card title="Charts">
-          <FinancialChart summary={summary} costBreakdown={costBreakdown} />
+      {loading && <LoadingSpinner />}
+
+      {data && data.yearOverYear.length > 0 && (
+        <Card title="Income vs Cost by Year">
+          <div className="h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={data.yearOverYear}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="year" />
+                <YAxis />
+                <Tooltip formatter={(value) => formatCurrency(Number(value))} />
+                <Legend />
+                <Bar dataKey="avgIncomePerAcre" fill="#22c55e" name="Avg Income/Ac" />
+                <Bar dataKey="avgCostPerAcre" fill="#ef4444" name="Avg Cost/Ac" />
+                <Line type="monotone" dataKey="avgProfitPerAcre" stroke="#3b82f6" name="Avg Profit/Ac" strokeWidth={2} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
         </Card>
-      </div>
+      )}
 
-      <Card title="Data Table">
-        <DataTable
-          data={summary}
-          columns={[
-            { key: 'fieldName', header: 'Field' },
-            { key: 'cropName', header: 'Crop' },
-            { key: 'year', header: 'Year' },
-            { key: 'totalCost', header: 'Total Cost', render: (v) => formatCurrency(v as number | null) },
-            { key: 'totalRevenue', header: 'Revenue', render: (v) => formatCurrency(v as number | null) },
-            { key: 'grossMargin', header: 'Margin', render: (v) => formatCurrency(v as number | null) },
-            { key: 'costPerAcre', header: 'Cost/Acre', render: (v) => formatCurrency(v as number | null) },
-            { key: 'revenuePerAcre', header: 'Rev/Acre', render: (v) => formatCurrency(v as number | null) },
-          ]}
-          emptyMessage="No financial data. Import data to get started."
-        />
-      </Card>
+      {data && data.summaries.length > 0 && (
+        <div className="mt-6">
+          <Card title={`P&L Summary (${data.summaries.length} records)`}>
+            <DataTable
+              data={data.summaries}
+              columns={[
+                { key: 'fieldName', header: 'Field' },
+                { key: 'year', header: 'Year' },
+                { key: 'crop', header: 'Crop' },
+                { key: 'acres', header: 'Acres', render: (v) => formatNumber(v as number, 0) },
+                { key: 'yield', header: 'Yield', render: (v) => v != null ? formatNumber(v as number, 1) : '-' },
+                { key: 'totalIncPerAcre', header: 'Inc/Ac', render: (v) => v != null ? formatCurrency(v as number) : '-' },
+                { key: 'totalCostPerAcre', header: 'Cost/Ac', render: (v) => v != null ? formatCurrency(v as number) : '-' },
+                { key: 'profitPerAcreByCrop', header: 'Profit/Ac', render: (v) => v != null ? formatCurrency(v as number) : '-' },
+                { key: 'roi', header: 'ROI', render: (v) => v != null ? formatNumber((v as number) * 100, 1) + '%' : '-' },
+              ]}
+            />
+          </Card>
+        </div>
+      )}
+
+      {data && data.summaries.length === 0 && !loading && (
+        <Card>
+          <p className="py-8 text-center text-slate-500">No P&L data found. Import Field P&L data to see financial analytics.</p>
+        </Card>
+      )}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getCropPerformance, getYieldTrends } from '@/services/cropService';
+import { getCornVarietyPerformance, getCornFilterOptions } from '@/services/cornService';
 import { successResponse, handleApiError } from '@/utils/apiResponse';
 import type { DashboardFilters } from '@/types/api';
 
@@ -8,16 +8,17 @@ export async function GET(request: NextRequest) {
     const { searchParams } = request.nextUrl;
     const filters: DashboardFilters = {
       year: searchParams.get('year') ? Number(searchParams.get('year')) : undefined,
-      cropId: searchParams.get('cropId') ?? undefined,
       fieldId: searchParams.get('fieldId') ?? undefined,
+      cornType: searchParams.get('cornType') ?? undefined,
+      seedCompany: searchParams.get('seedCompany') ?? undefined,
     };
 
-    const [performance, trends] = await Promise.all([
-      getCropPerformance(filters),
-      getYieldTrends(filters),
+    const [varieties, filterOptions] = await Promise.all([
+      getCornVarietyPerformance(filters),
+      getCornFilterOptions(),
     ]);
 
-    return successResponse({ performance, trends });
+    return successResponse({ varieties, filterOptions });
   } catch (err) {
     return handleApiError(err);
   }

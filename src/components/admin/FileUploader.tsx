@@ -11,7 +11,7 @@ interface FileUploaderProps {
 
 export default function FileUploader({
   onFileSelect,
-  accept = '.xlsx,.xls',
+  accept = '.xlsx,.xls,.xlsm',
   maxSizeMB = 10,
 }: FileUploaderProps) {
   const [dragOver, setDragOver] = useState(false);

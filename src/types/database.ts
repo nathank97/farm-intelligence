@@ -2,6 +2,9 @@
 // Uses number instead of Decimal, string for dates
 
 export type UserRole = 'ADMIN' | 'VIEWER';
+export type CropCategory = 'CORN' | 'EDIBLE_BEAN' | 'GRAIN' | 'SPECIALTY' | 'FORAGE';
+export type CornType = 'DRY_CORN' | 'SILAGE' | 'HIGH_MOISTURE_CORN' | 'ORGANIC_CORN' | 'EARLAGE';
+export type BeanType = 'BLACKS' | 'DARK_REDS' | 'LIGHT_REDS' | 'ORGANIC_BLACKS' | 'ORGANIC_DARK_REDS' | 'PINTOS' | 'SMALL_REDS' | 'WHITES';
 
 export interface UserProfile {
   id: string;
@@ -14,10 +17,11 @@ export interface UserProfile {
 
 export interface Field {
   id: string;
+  fieldNumber: number | null;
   name: string;
-  acreage: number;
-  soilType: string | null;
-  location: string | null;
+  acres: number;
+  areaCode: number | null;
+  patternTile: number | null;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -26,7 +30,14 @@ export interface Field {
 export interface Crop {
   id: string;
   name: string;
-  category: string | null;
+  category: CropCategory;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SeedCompany {
+  id: string;
+  name: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -34,45 +45,8 @@ export interface Crop {
 export interface Variety {
   id: string;
   name: string;
-  cropId: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface FieldCropYear {
-  id: string;
-  fieldId: string;
-  cropId: string;
-  varietyId: string | null;
-  year: number;
-  yieldPerAcre: number | null;
-  totalYield: number | null;
-  plantingDate: string | null;
-  harvestDate: string | null;
-  qualityMetrics: Record<string, unknown> | null;
-  notes: string | null;
-  createdAt: string;
-  updatedAt: string;
-  // Joined relations (optional)
-  field?: Field;
-  crop?: Crop;
-  variety?: Variety | null;
-  financials?: Financial | null;
-}
-
-export interface Financial {
-  id: string;
-  fieldCropYearId: string;
-  seedCost: number | null;
-  fertilizerCost: number | null;
-  sprayCost: number | null;
-  operationsCost: number | null;
-  totalCost: number | null;
-  revenuePerTonne: number | null;
-  totalRevenue: number | null;
-  grossMargin: number | null;
-  costPerAcre: number | null;
-  revenuePerAcre: number | null;
+  seedCompanyId: string | null;
+  cropCategory: CropCategory;
   createdAt: string;
   updatedAt: string;
 }
@@ -81,6 +55,7 @@ export interface ImportLog {
   id: string;
   userId: string;
   fileName: string;
+  fileType: string;
   rowsProcessed: number;
   rowsFailed: number;
   status: 'success' | 'partial' | 'failed';
