@@ -301,21 +301,30 @@ export async function persistCornData(
       }
     }
 
-    // Upsert fields (find by fieldNumber OR name to avoid unique constraint conflicts)
+    // Upsert fields — search by fieldNumber first (authoritative), then by name
     const fieldMap = new Map<number, string>();
     for (const [num, data] of uniqueFields) {
-      let f = await tx.field.findFirst({
-        where: { OR: [{ fieldNumber: num }, { name: data.name }] },
-      });
+      let f = await tx.field.findUnique({ where: { fieldNumber: num } });
       if (f) {
+        // Found by fieldNumber — update non-unique fields only (don't change name to avoid name conflicts)
         f = await tx.field.update({
           where: { id: f.id },
-          data: { fieldNumber: num, name: data.name, acres: data.acres, patternTile: data.patternTile },
+          data: { acres: data.acres, patternTile: data.patternTile },
         });
       } else {
-        f = await tx.field.create({
-          data: { fieldNumber: num, name: data.name, acres: data.acres, patternTile: data.patternTile },
-        });
+        // Not found by fieldNumber — try by name
+        f = await tx.field.findUnique({ where: { name: data.name } });
+        if (f) {
+          // Found by name — safe to add fieldNumber since we confirmed it doesn't exist above
+          f = await tx.field.update({
+            where: { id: f.id },
+            data: { fieldNumber: num, acres: data.acres, patternTile: data.patternTile },
+          });
+        } else {
+          f = await tx.field.create({
+            data: { fieldNumber: num, name: data.name, acres: data.acres, patternTile: data.patternTile },
+          });
+        }
       }
       fieldMap.set(num, f.id);
     }
@@ -524,22 +533,31 @@ export async function persistPLData(
   let rowsProcessed = 0;
 
   const importLogId = await prisma.$transaction(async (tx) => {
-    // Upsert fields (find by fieldNumber OR name to avoid unique constraint conflicts)
+    // Upsert fields — search by fieldNumber first (authoritative), then by name
     const fieldMap = new Map<number, string>();
     for (const row of rows) {
       if (!fieldMap.has(row.fieldNumber)) {
-        let f = await tx.field.findFirst({
-          where: { OR: [{ fieldNumber: row.fieldNumber }, { name: row.fieldName }] },
-        });
+        let f = await tx.field.findUnique({ where: { fieldNumber: row.fieldNumber } });
         if (f) {
+          // Found by fieldNumber — update non-unique fields only (don't change name to avoid name conflicts)
           f = await tx.field.update({
             where: { id: f.id },
-            data: { fieldNumber: row.fieldNumber, name: row.fieldName, acres: row.acres, areaCode: row.areaCode ?? undefined },
+            data: { acres: row.acres, areaCode: row.areaCode ?? undefined },
           });
         } else {
-          f = await tx.field.create({
-            data: { fieldNumber: row.fieldNumber, name: row.fieldName, acres: row.acres, areaCode: row.areaCode },
-          });
+          // Not found by fieldNumber — try by name
+          f = await tx.field.findUnique({ where: { name: row.fieldName } });
+          if (f) {
+            // Found by name — safe to add fieldNumber since we confirmed it doesn't exist above
+            f = await tx.field.update({
+              where: { id: f.id },
+              data: { fieldNumber: row.fieldNumber, acres: row.acres, areaCode: row.areaCode ?? undefined },
+            });
+          } else {
+            f = await tx.field.create({
+              data: { fieldNumber: row.fieldNumber, name: row.fieldName, acres: row.acres, areaCode: row.areaCode },
+            });
+          }
         }
         fieldMap.set(row.fieldNumber, f.id);
       }
