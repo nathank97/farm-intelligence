@@ -22,6 +22,7 @@ function buildWhere(filters: DashboardFilters): Prisma.EdibleLoadWhereInput {
   if (filters.year) where.year = filters.year;
   if (filters.fieldId) where.fieldId = filters.fieldId;
   if (filters.beanType) where.beanType = filters.beanType as Prisma.EnumBeanTypeFilter;
+  if (filters.variety) where.varietyId = filters.variety;
   return where;
 }
 
@@ -201,11 +202,17 @@ export async function getEdibleFilterOptions(): Promise<{
   years: FilterOption[];
   fields: FilterOption[];
   beanTypes: FilterOption[];
+  varieties: FilterOption[];
 }> {
-  const [years, fields] = await Promise.all([
+  const [years, fields, varieties] = await Promise.all([
     prisma.edibleLoad.findMany({ select: { year: true }, distinct: ["year"], orderBy: { year: "desc" } }),
     prisma.field.findMany({
       where: { edibleLoads: { some: {} } },
+      select: { id: true, name: true },
+      orderBy: { name: "asc" },
+    }),
+    prisma.variety.findMany({
+      where: { cropCategory: "EDIBLE_BEAN" },
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),
@@ -226,6 +233,7 @@ export async function getEdibleFilterOptions(): Promise<{
     years: years.map((y) => ({ label: String(y.year), value: String(y.year) })),
     fields: fields.map((f) => ({ label: f.name, value: f.id })),
     beanTypes,
+    varieties: varieties.map((v) => ({ label: v.name, value: v.id })),
   };
 }
 

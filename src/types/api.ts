@@ -31,4 +31,5 @@ export interface DashboardFilters {
   beanType?: string;
   seedCompany?: string;
   crop?: string;
+  variety?: string;
 }

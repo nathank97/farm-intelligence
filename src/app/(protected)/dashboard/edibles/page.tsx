@@ -18,6 +18,7 @@ interface EdibleData {
     years: FilterOption[];
     fields: FilterOption[];
     beanTypes: FilterOption[];
+    varieties: FilterOption[];
   };
 }
 
@@ -27,6 +28,7 @@ export default function EdiblePerformancePage() {
   const [year, setYear] = useState('');
   const [fieldId, setFieldId] = useState('');
   const [beanType, setBeanType] = useState('');
+  const [variety, setVariety] = useState('');
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -34,12 +36,13 @@ export default function EdiblePerformancePage() {
     if (year) params.set('year', year);
     if (fieldId) params.set('fieldId', fieldId);
     if (beanType) params.set('beanType', beanType);
+    if (variety) params.set('variety', variety);
 
     const res = await fetch(`/api/dashboard/edibles?${params}`);
     const json = await res.json();
     if (json.success) setData(json.data);
     setLoading(false);
-  }, [year, fieldId, beanType]);
+  }, [year, fieldId, beanType, variety]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -58,6 +61,7 @@ export default function EdiblePerformancePage() {
               { key: 'year', label: 'All Years', options: data.filterOptions.years, value: year, onChange: setYear },
               { key: 'field', label: 'All Fields', options: data.filterOptions.fields, value: fieldId, onChange: setFieldId },
               { key: 'beanType', label: 'All Bean Types', options: data.filterOptions.beanTypes, value: beanType, onChange: setBeanType },
+              { key: 'variety', label: 'All Varieties', options: data.filterOptions.varieties, value: variety, onChange: setVariety },
             ]}
           />
         </div>

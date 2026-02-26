@@ -10,6 +10,7 @@ export async function GET(request: NextRequest) {
       year: searchParams.get('year') ? Number(searchParams.get('year')) : undefined,
       fieldId: searchParams.get('fieldId') ?? undefined,
       beanType: searchParams.get('beanType') ?? undefined,
+      variety: searchParams.get('variety') ?? undefined,
     };
 
     const [fieldSeasons, yieldTrends, filterOptions] = await Promise.all([
