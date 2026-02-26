@@ -1,0 +1,25 @@
+import { NextRequest } from 'next/server';
+import { getFinancialSummary, getCostBreakdown, getFinancialStats } from '@/services/financialService';
+import { successResponse, handleApiError } from '@/utils/apiResponse';
+import type { DashboardFilters } from '@/types/api';
+
+export async function GET(request: NextRequest) {
+  try {
+    const { searchParams } = request.nextUrl;
+    const filters: DashboardFilters = {
+      year: searchParams.get('year') ? Number(searchParams.get('year')) : undefined,
+      cropId: searchParams.get('cropId') ?? undefined,
+      fieldId: searchParams.get('fieldId') ?? undefined,
+    };
+
+    const [summary, costBreakdown, stats] = await Promise.all([
+      getFinancialSummary(filters),
+      getCostBreakdown(filters),
+      getFinancialStats(filters),
+    ]);
+
+    return successResponse({ summary, costBreakdown, stats });
+  } catch (err) {
+    return handleApiError(err);
+  }
+}
