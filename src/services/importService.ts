@@ -301,14 +301,22 @@ export async function persistCornData(
       }
     }
 
-    // Upsert fields
+    // Upsert fields (find by fieldNumber OR name to avoid unique constraint conflicts)
     const fieldMap = new Map<number, string>();
     for (const [num, data] of uniqueFields) {
-      const f = await tx.field.upsert({
-        where: { fieldNumber: num },
-        create: { fieldNumber: num, name: data.name, acres: data.acres, patternTile: data.patternTile },
-        update: { acres: data.acres, patternTile: data.patternTile },
+      let f = await tx.field.findFirst({
+        where: { OR: [{ fieldNumber: num }, { name: data.name }] },
       });
+      if (f) {
+        f = await tx.field.update({
+          where: { id: f.id },
+          data: { fieldNumber: num, name: data.name, acres: data.acres, patternTile: data.patternTile },
+        });
+      } else {
+        f = await tx.field.create({
+          data: { fieldNumber: num, name: data.name, acres: data.acres, patternTile: data.patternTile },
+        });
+      }
       fieldMap.set(num, f.id);
     }
 
@@ -398,18 +406,24 @@ export async function persistEdibleData(
   let rowsProcessed = 0;
 
   const importLogId = await prisma.$transaction(async (tx) => {
-    // Upsert fields (by name since edibles has no field #)
+    // Upsert fields (by name since edibles has no field #; find first to avoid conflicts)
     const fieldMap = new Map<string, string>();
     const uniqueFields = new Map<string, { acres: number; patternTile: number | null }>();
     for (const row of rows) {
       uniqueFields.set(row.fieldName, { acres: row.acres, patternTile: row.patternTile });
     }
     for (const [name, data] of uniqueFields) {
-      const f = await tx.field.upsert({
-        where: { name },
-        create: { name, acres: data.acres, patternTile: data.patternTile },
-        update: { acres: data.acres, patternTile: data.patternTile ?? undefined },
-      });
+      let f = await tx.field.findFirst({ where: { name } });
+      if (f) {
+        f = await tx.field.update({
+          where: { id: f.id },
+          data: { acres: data.acres, patternTile: data.patternTile ?? undefined },
+        });
+      } else {
+        f = await tx.field.create({
+          data: { name, acres: data.acres, patternTile: data.patternTile },
+        });
+      }
       fieldMap.set(name, f.id);
     }
 
@@ -510,15 +524,23 @@ export async function persistPLData(
   let rowsProcessed = 0;
 
   const importLogId = await prisma.$transaction(async (tx) => {
-    // Upsert fields
+    // Upsert fields (find by fieldNumber OR name to avoid unique constraint conflicts)
     const fieldMap = new Map<number, string>();
     for (const row of rows) {
       if (!fieldMap.has(row.fieldNumber)) {
-        const f = await tx.field.upsert({
-          where: { fieldNumber: row.fieldNumber },
-          create: { fieldNumber: row.fieldNumber, name: row.fieldName, acres: row.acres, areaCode: row.areaCode },
-          update: { name: row.fieldName, acres: row.acres, areaCode: row.areaCode ?? undefined },
+        let f = await tx.field.findFirst({
+          where: { OR: [{ fieldNumber: row.fieldNumber }, { name: row.fieldName }] },
         });
+        if (f) {
+          f = await tx.field.update({
+            where: { id: f.id },
+            data: { fieldNumber: row.fieldNumber, name: row.fieldName, acres: row.acres, areaCode: row.areaCode ?? undefined },
+          });
+        } else {
+          f = await tx.field.create({
+            data: { fieldNumber: row.fieldNumber, name: row.fieldName, acres: row.acres, areaCode: row.areaCode },
+          });
+        }
         fieldMap.set(row.fieldNumber, f.id);
       }
     }
